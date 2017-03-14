@@ -1,16 +1,14 @@
 <div class="transaction-modal-info">
     <div class="transaction-modal-info-left">
         <span>Order #{{transaction.id}}</span>
-        <br />
-        <br />
     </div>
     <div class="transaction-modal-info-right">
-        <span>Added by {{transaction.cashier_name}}</span>
+        <span>Cashier: {{transaction.cashier_name}}</span>
     </div>
 </div>
 <div class="transaction-modal-table-container">
-    <h4>Customer: {{transaction.customer_name}}</h4>
-    <br />
+    <span class="transaction-info">Customer: {{transaction.customer_name}}</span4><br />
+    <span class="transaction-info">Type: {{transaction.transaction_type}}</span>
     <table class="table">
         <thead>
             <tr>
@@ -30,7 +28,7 @@
                 {% endif %}
                 <td class="align-left">{{item.item_name}}</td>
                 <td class="align-right">{{item.item_qty}}</td>
-                <td class="align-right">Php {{item.price}}</td>
+                <td class="align-right">&#8369; {{item.price}}</td>
             </tr>
             {% endfor %}
             <tr>
@@ -38,19 +36,27 @@
                 <td class="align-left"></td>
                 {% endif %}
                 <td class="align-left"></td>
-                <td id="payLaterTotal" class="align-right"><strong>Total</strong></td>
-                <td class="align-right"><strong>Php {{transaction.total}}</strong></td>
+                <td id="payLaterTotal" class="align-right small"><strong>Total</strong></td>
+                <td class="align-right small"><strong>&#8369; {{transaction.total}}</strong></td>
             </tr>
             {% if transaction.payed %}
             <tr>
                 <td class="align-left"></td>
-                <td class="align-right">Amount Tendered</td>
-                <td class="align-right">Php {{transaction.amount_tendered}}</td>
+                <td class="align-right small">Amount Tendered</td>
+                {% if transaction.type == 'Cash' %}
+                <td class="align-right small">&#8369; {{transaction.amount_tendered}}</td>
+                {% else %}
+                <td class="align-right small">--</td>
+                {% endif %}
             </tr>
             <tr>
                 <td class="align-left"></td>
-                <td class="align-right">Change</td>
-                <td class="align-right">Php {{transaction.change}}</td>
+                <td class="align-right small">Change</td>
+                {% if transaction.type == 'Cash' %}
+                <td class="align-right small">&#8369; {{transaction.change}}</td>
+                {% else %}
+                <td class="align-right small">--</td>
+                {% endif %}
             </tr>
             {% endif %}
         </tbody>

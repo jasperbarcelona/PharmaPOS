@@ -3,6 +3,12 @@
 		src:url('../fonts/OpenSans-Regular.ttf');
 	}
 
+@font-face{
+		font-family: Gotham Rounded;
+		src:url('../fonts/GothamRounded-Book.otf');
+	}
+
+
 html, body, div, span, h1, h2, h3, h4, h5, h6, p, blockquote, pre,
 a, em, img, strong, sub, sup, b, i, dl, dt, dd, ol, ul, li,
 fieldset, form, label, legend,
@@ -23,12 +29,16 @@ html{
 body{
 	width: 100%;
 	height: 100%;
-
 	overflow-x: hidden;
-	font-family: OpenSans;
+	overflow-y: hidden;
+	font-family: Gotham Rounded;
 	-webkit-user-select: none;  /* Chrome all / Safari all */
   	-moz-user-select: none;     /* Firefox all */
   	-ms-user-select: none;
+}
+
+#cancelTransactionBtn{
+	display: none !important;
 }
 
 #pos{
@@ -51,7 +61,7 @@ body{
 
 .pos-left{
 	background-color: #EDEAE7;
-	padding: 20px;
+	padding: 0 0 0 0;
 }
 
 .pos-right{
@@ -68,35 +78,45 @@ body{
 	text-transform: uppercase;
 	text-align: center;
 	height: 40px;
+	background-color: #337ab7 !important;
 }
 
 #currentTransactionPanel{
 	border: none !important;
 	height: 100%;
+	margin: 0 !important;
 }
 
 #currentTransactionPanel > .panel-body{
 	position: relative;
-	height: calc(100% - 117px);
+	height: calc(100% - 100px);
 	overflow: scroll;
 	overflow-x: hidden;
 }
 
 #currentTransactionPanel > .panel-footer{
-	padding: 15px !important;
+	padding: 0 !important;
 	background-color: #FFFFFF;
+	height: calc((100% - 40px) - (100% - 100px));
 }
 
 #currentTransactionPanel > .panel-footer > button{
-	width: calc(50% - 10px);
-	height: 45px;
+	float: left;
+	width: 100%;
+	height: 100%;
 	text-transform: uppercase;
 	font-weight: bold;
+	margin: 0 !important;
 	border-radius: 0 !important;
-}
-
-#cancelTransactionBtn{
-	margin-right: 10px !important;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-direction: column;
+	flex-direction: column;
+	-webkit-align-items: center;
+	align-items: center;
+	-webkit-justify-content: center;
+	justify-content: center;
+	padding-top: 10px;
 }
 
 .align-left{
@@ -111,6 +131,10 @@ body{
 	text-align: center !important;
 }
 
+.small{
+	font-size: 14px !important;
+}
+
 .tab-content{
 	padding: 0;
 }
@@ -119,6 +143,10 @@ body{
 	padding: 0;
 	height: 60px;
 	border-bottom: 1px solid #929292;
+}
+
+.search-container.sales{
+	border-top: 1px solid #929292;
 }
 
 .search-icon-container{
@@ -146,7 +174,7 @@ body{
 	box-shadow: none !important;
 }
 
-#searchBox{
+.search-box{
 	height: 100% !important;
 	width: 100%;
 }
@@ -158,7 +186,6 @@ body{
 .nav-tabs > li{
 	padding: 0;
 	background-color: #EDEAE7;
-	width: 20%;
 }
 
 .no-transaction{
@@ -226,7 +253,8 @@ body{
 }
 
 .item-group > div{
-	padding: 5px 5px 0px 0px;
+	padding: 0;
+	border: 1px solid #FFFFFF;
 }
 
 .item{
@@ -260,7 +288,8 @@ body{
 
 .item-name{
 	text-align: center;
-	font-size: 18px;
+	font-size: 16px;
+	line-height: 1.5;
 }
 
 .item > div{
@@ -271,12 +300,7 @@ body{
     text-align: center;
 }
 
-.qty-modal-header,
-.delete-order-modal-header,
-.cancel-transaction-modal-header,
-.payment-selection-modal-header,
-.cash-transaction-modal-header,
-.pay-transaction-modal-header{
+.modal-header{
 	background-color: #337ab7;
 	color: #FFFFFF;
 	text-transform: uppercase;
@@ -338,14 +362,53 @@ body{
 	margin-right: 10px;
 }
 
+#payWithCard,
+#addDeliveryBtn{
+	margin-bottom: 8px;`
+}
+
 #cashPayment > span,
 #ewalletPayment > span,
-#addToExisting > span{
-	font-size: 18px;
+#addToExisting > span,
+#payWithCard > span,
+#addDeliveryBtn > span{
+	font-size: 18px !important;
+}
+
+#addToExistingModalBody{
+	height: 300px;
+	overflow-y: scroll;
+	overflow-x: hidden;
+}
+
+td{
+	border-bottom: 1px solid #ddd;
+	border-top: none !important;
+}
+
+tr, i{
+	cursor: pointer;
 }
 
 .form-control{
 	border-radius: 0;
+}
+
+.item-icons-container{
+	height: 100%;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-direction: row;
+	flex-direction: row;
+	-webkit-align-items: center;
+	align-items: center;
+	-webkit-justify-content: center;
+	justify-content: center;
+}
+
+.item-icons-container > div{
+	text-align: right;
+	width: 100%;
 }
 
 .payment-selection-cover{
@@ -358,8 +421,104 @@ body{
 	top: 0;
 }
 
+#walletForm{
+	width: 100%;
+}
+
 #customerName{
 	height: 50px;
+}
+
+.new-item-modal-body,
+.new-product-modal-body{
+	float: left;
+	width: 100%;
+}
+
+.new-product-modal-body{
+	max-height: calc(100vh - 200px);
+	overflow-y: scroll !important;
+	overflow-x: hidden;
+}
+
+.form-control{
+	text-transform: capitalize !important;
+}
+
+.new-product-modal-body > .form-control,
+.new-product-input-container > .form-control{
+	height: 40px;
+}
+
+.divider{
+	width: 100%;
+	height: 40px;
+	float: left;
+}
+
+.new-product-input-container{
+	padding: 5px 5px 5px 5px;
+	position: relative;
+}
+
+.new-product-title-container{
+	position: absolute;
+	left: 5px;
+	bottom: 0;
+	padding: 0;
+}
+
+.new-item-btn-container{
+	position: absolute;
+	right: 5px;
+	bottom: 0;
+	padding: 0;
+}
+
+#item_allocation_container{
+	padding-top: 10px;
+	margin-bottom: 20px;
+	position: relative;
+	float: left;
+	width: 100%;
+}
+
+#item_allocation_container > .row{
+	width: 100%;
+	float: left;
+	margin: 0;
+}
+
+.add-row-container{
+	text-align: right;
+}
+
+.add-item-btn{
+	cursor: pointer;
+	color: #215078;
+	text-decoration: underline;
+}
+
+.bootstrap-select > button{
+	height: 40px !important;
+	border-radius: 0 !important;
+	background: transparent !important;
+	background-color: transparent !important;
+	box-shadow: none !important;
+	color: #333 !important;
+}
+
+.dropdown-menu > li > a:hover{
+	background: #337ab7 !important;
+	background-color: #337ab7 !important;
+	color: #FFFFFF !important;
+}
+
+.selected > a{
+	background: transparent !important;
+	background-color: transparent !important;
+	outline: none !important;
+	color: #333 !important;
 }
 
 .qty-container > div{
@@ -391,6 +550,14 @@ body{
 .cash-transaction-modal-dialog,
 .pay-transaction-modal-dialog{
 	width: 400px;
+}
+
+.new-product-modal-dialog{
+	width: 600px;
+}
+
+.delivery-modal-dialog{
+	width: 700px;
 }
 
 .payment-selection-modal-dialog{
@@ -565,6 +732,26 @@ body{
 	margin-left: 20px;
 }
 
+.xs{
+	width: 10%;
+}
+
+#addItemConsumptionModal{
+	z-index: 5000;
+}
+
+#currentTransactionTable > thead > tr > th.long{
+	width: 35%;
+}
+
+#currentTransactionTable > thead > tr > th.short{
+	width: 20%;
+}
+
+#currentTransactionTable > thead > tr > th.medium{
+	width: 30%;
+}
+
 #currentTransactionTable > tbody > tr:active,
 #inventoryTable > tbody > tr:active,
 #historyTable > tbody > tr:active,
@@ -589,13 +776,52 @@ body{
 	padding-bottom: 20px;
 }
 
+#historyTable > tbody > tr > td.xs{
+	width: 10%;
+}
+
+#historyTable > tbody > tr > td.long{
+	width: 27%;
+}
+
+#historyTable > tbody > tr > td.med{
+	width: 18%;
+}
+
 .delete-from-cart{
 	font-size: 20px;
 	color: #d9534f;
 }
 
+#ewalletFormContainer{
+	position: relative;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-direction: column;
+	flex-direction: column;
+	-webkit-align-items: center;
+	align-items: center;
+	-webkit-justify-content: center;
+	justify-content: center;
+	width: 100%;
+}
+
+#ewalletFormContainer > div{
+	width: 100%;
+}
+
+.delete-from-allocation{
+	font-size: 16px;
+	color: #d9534f;
+}
+
 .delete-item-name{
 	font-weight: bold;
+}
+
+#datetimepicker1{
+	float: left;
+	width: 100% !important;
 }
 
 
@@ -632,6 +858,24 @@ body{
 	justify-content: center;
 }
 
+.add-on > i{
+	color: #337ab7;
+	font-size: 38px !important;
+}
+
+.datetimepicker1{
+	padding-top: 5px;
+}
+
+#searchHistory,
+#searchSale{
+	float: left;
+	height: 35px;
+	width: 300px;
+	margin-top: 3px;
+	padding-left: 10px;
+}
+
 .inventory-search-icon{
 	color: #337ab7;
 	font-size: 37px !important;
@@ -639,13 +883,15 @@ body{
 	padding-right: 20px;
 }
 
-.inventory-refresh-icon{
+.inventory-refresh-icon,
+.items-refresh-icon{
 	color: #337ab7;
 	font-size: 37px !important;
 	padding-top: 1px;
 }
 
-.inventory-add-icon{
+.inventory-add-icon,
+.items-add-icon{
 	color: #337ab7;
 	font-size: 42px !important;
 	padding-right: 20px;
@@ -659,7 +905,17 @@ body{
 	height: 100%;
 }
 
-.inventory-table-container{
+.inventory-table-container,
+.loyalty-table-container{
+	height: calc(100% - 140px);
+	margin-top: 10px;
+	float: left;
+	overflow-y: scroll;
+	overflow-x: hidden;
+	padding: 0px 20px 20px 20px;
+}
+
+.sales-table-container{
 	height: calc(100% - 80px);
 	margin-top: 10px;
 	float: left;
@@ -667,6 +923,7 @@ body{
 	overflow-x: hidden;
 	padding: 0px 20px 20px 20px;
 }
+
 
 .order-slip{
 	height: 50%;
@@ -738,31 +995,47 @@ body{
 }
 
 .history-container{
-	height: calc(100% - 80px);
+	height: calc(100% - 70px);
 	border: 1px solid #FFFFFF;
 	overflow-y: scroll;
 	overflow-x: hidden;
 	padding: 20px;
 }
 
-.glyphicon-ok{
+.glyphicon-ok,
+.points-check,
+.green{
 	color: #5cb85c;
+}
+
+.red{
+	color: #d9534f;
+}
+
+.points-check{
+	font-size: 28px !important;
 }
 
 .transaction-modal-info{
 	width: 100%;
-	height: 50px;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-direction: row;
+	flex-direction: row;
+	-webkit-align-items: center;
+	align-items: center;
+	-webkit-justify-content: center;
+	justify-content: center;
 }
 
 .transaction-modal-info > div{
-	height: 100%;
 	width: 50%;
 	float: left;
 }
 
 .transaction-modal-info-left{
 	text-align: left;
-	font-size: 20px;
+	font-size: 16px;
 }
 
 .transaction-modal-info-right{
@@ -770,23 +1043,27 @@ body{
 	font-size: 16px;
 }
 
-#transactionInfoOkay{
-	border-radius: 0 !important;
-	height: 45px;
-	padding-left: 30px;
-	padding-right: 30px;
+.transaction-info{
+	font-size: 16px;
+	margin-bottom: 20px;
+	margin-top: 20px;
+	float: left;
+	width: 100%;
 }
 
 #transactionInfoPay,
 #transactionInfoDelete,
-#transactionInfoClose{
+#transactionInfoClose,
+#transactionInfoOkay,
+#addLoyaltyBtn{
 	border-radius: 0 !important;
 	height: 45px;
 	width: 120px;
 }
 
 #transactionInfoPay,
-#transactionInfoDelete{
+#transactionInfoDelete,
+#addLoyaltyBtn{
 	margin-right: 5px;
 }
 
@@ -799,4 +1076,130 @@ body{
 	max-height: calc(100vh - 100px);
 	overflow-y: scroll;
 	overflow-x: hidden;
+}
+
+.delivery-data-body{
+	position: relative;
+	min-height: 300px;
+}
+
+.delivery-loading-container,
+#confirmDeliveryLoading{
+	background-color: #FFFFFF;
+	position: absolute;
+	bottom: 70px;
+	left: 0;
+	height: calc(100% - 115px);
+	width: 100%;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-direction: column;
+	flex-direction: column;
+	-webkit-align-items: center;
+	align-items: center;
+	-webkit-justify-content: center;
+	justify-content: center;	
+	z-index: 2000;
+}
+
+#confirmDeliveryModalBody{
+	min-height: 150px;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-direction: column;
+	flex-direction: column;
+	-webkit-align-items: center;
+	align-items: center;
+	-webkit-justify-content: center;
+	justify-content: center;
+}
+
+.delivery-error-container{
+	background-color: #FFFFFF;
+	position: absolute;
+	left: 0;
+	top: 0;
+	height: 100%;
+	width: 100%;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-direction: column;
+	flex-direction: column;
+	-webkit-align-items: center;
+	align-items: center;
+	-webkit-justify-content: center;
+	justify-content: center;
+}
+
+.delivery-error-container > span{
+	font-size: 16px;
+	text-transform: uppercase;
+}
+
+#activeOrdersTable > tbody > tr{
+	cursor: pointer !important;
+}
+
+#activeOrdersTable > tbody > tr:active{
+	background-color: #EEEEEE !important;
+}
+
+#confirmDeliveryModal{
+	z-index: 10000;
+}
+
+#walletTryAgainBtn{
+	border: 2px solid #337ab7;
+	color: #337ab7;
+	background-color: transparent;
+	margin-top: 10px;
+}
+
+#walletTryAgainBtn:active,
+#walletTryAgainBtn:hover,
+#walletTryAgainBtn:focus{
+	border: 2px solid #337ab7;
+	color: #337ab7;
+	background-color: transparent;
+	outline: none !important;
+}
+
+.wallet-error{
+	color: #d9534f;
+	font-size: 18px;
+}
+
+#walletId{
+	box-shadow: none !important;
+}
+
+.credits-container{
+	width: 100%;
+	text-align: center;
+}
+
+.wallet-info-big{
+	font-size: 16px;
+}
+
+.wallet-info-small{
+	font-size: 14px;
+}
+
+.loader{
+	position: absolute;
+	top: 0;
+	left: 0;
+	height: 100%;
+	width: 100%;
+	background-color: #FFFFFF;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-direction: column;
+	flex-direction: column;
+	-webkit-align-items: center;
+	align-items: center;
+	-webkit-justify-content: center;
+	justify-content: center;
+	
 }

@@ -1,0 +1,33 @@
+{% if success %}
+<div class="credits-container">
+<span class="wallet-info-big"><strong>Available Credits:</strong></span><span class="wallet-info-big" id="availableCredits"> {{credits}}</span>
+</div>
+<br />
+<span class="wallet-info-small">({{student_name}})</span>
+{% else %}
+<span class="wallet-error">{{message}}</span>
+<br />
+<button id="walletTryAgainBtn" type="button" class="btn">Try again</button>
+{% endif %}
+
+<script type="text/javascript">
+	$('#walletTryAgainBtn').on('click', function () {
+        $('#ewalletFormContainer').html(`
+        	<div class="loader" id="ewalletLoading">
+                <img src="../static/images/assets/loading.gif">
+            </div>
+            <div>
+                <div>
+                <label for="amountTendered">Please tap ID onto reader:</label>
+                </div>
+            </div><br />
+            <div>
+                <form id="walletForm2" onsubmit="get_ewallet_info(event)">
+                    <input autocomplete="off" type="password" id="walletId" class="form-control" placeholder="ID number">
+                </form>
+            </div>
+        `)
+        $('.loader').hide();
+		$('#walletId').focus();
+    });
+</script>

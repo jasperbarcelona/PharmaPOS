@@ -16,6 +16,7 @@ from sqlalchemy.sql import func
 import requests
 import datetime
 import time
+from time import sleep
 import json
 import uuid
 import os
@@ -26,6 +27,43 @@ app.secret_key = '234234rfascasascqweqscasefsdvqwefe2323234dvsv'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///local.db'
 # os.environ['DATABASE_URL']
 # 'sqlite:///local.db'
+
+ADMIN_URL = 'http://smokadmin.herokuapp.com/sync'
+BRANCH = 'Lucena Ravanzo'
+
+DELIVERY_URL = 'http://rcvr.herokuapp.com/transaction/order/info'
+DELIVERY_ADD_URL = 'http://rcvr.herokuapp.com/order/add'
+
+WALLET_URL = 'http://127.0.0.1:5000/wallet/info'
+TRANSACT_URL = 'http://127.0.0.1:5000/transaction/save'
+
+APP_KEY = '4tqgtah47riyk9475lbmho6847dyth6o'
+SCHOOL_NO = 'tmtc-sc2016'
+
+class Serializer(object):
+  __public__ = None
+
+  def to_serializable_dict(self):
+    dict = {}
+    for public_key in self.__public__:
+      value = getattr(self, public_key)
+      if value:
+        dict[public_key] = value
+    return dict
+
+class SWEncoder(json.JSONEncoder):
+  def default(self, obj):
+    if isinstance(obj, Serializer):
+      return obj.to_serializable_dict()
+    if isinstance(obj, (datetime)):
+      return obj.isoformat()
+    return json.JSONEncoder.default(self, obj)
+
+def SWJsonify(*args, **kwargs):
+  return app.response_class(json.dumps(dict(*args, **kwargs), cls=SWEncoder, 
+         indent=None if request.is_xhr else 2), mimetype='application/json')
+        # from https://github.com/mitsuhiko/flask/blob/master/flask/helpers.py
+
 class Item(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100))
@@ -37,6 +75,17 @@ class Product(db.Model):
     category = db.Column(db.String(20))
     description = db.Column(db.String(1000))
     price = db.Column(db.Float())
+    markup = db.Column(db.Float())
+    flavor_id = db.Column(db.Integer)
+
+class Sale(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer)
+    item_name = db.Column(db.String(60))
+    date = db.Column(db.String(30))
+    qty = db.Column(db.Integer, default=0)
+    markup = db.Column(db.Float(), default=0)
+    total = db.Column(db.Float(), default=0)
 
 class Option(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -61,29 +110,56 @@ class Cashier(db.Model):
     id_no = db.Column(db.String(20))
     password = db.Column(db.String(20))
 
-class Transaction(db.Model):
+class Transaction(db.Model, Serializer):
+    __public__ = ['id','date','time','cashier_id','total','amount_tendered','change','cashier_name',
+                'customer_name','customer_id','status','remarks','payed','note','timestamp','card_no',
+                'transaction_type']
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.String(30))
     time = db.Column(db.String(10))
     cashier_id = db.Column(db.Integer())
     total = db.Column(db.Float())
-    amount_tendered = db.Column(db.Float())
-    change = db.Column(db.Float())
+    amount_tendered = db.Column(db.Float(),default=0)
+    change = db.Column(db.Float(),default=0)
     cashier_name = db.Column(db.String(60))
-    customer_name = db.Column(db.String(60))
+    customer_name = db.Column(db.String(60),default='--')
+    customer_id_no = db.Column(db.Integer())
     status = db.Column(db.String(60),default='Pending')
     remarks = db.Column(db.String(60),default='Pending')
     payed = db.Column(db.Boolean())
+    note = db.Column(db.Text())
     timestamp = db.Column(db.String(50))
+    card_no = db.Column(db.String(20), default='--')
+    transaction_type = db.Column(db.String(10))
+    sync_status = db.Column(db.String(10),default='failed')
 
-class TransactionItem(db.Model):
+class TransactionItem(db.Model, Serializer):
+    __public__ = ['id','transaction_id','item_id','item_name','item_qty','price','done','flavor_id']
     id = db.Column(db.Integer, primary_key=True)
     transaction_id = db.Column(db.Integer)
     item_id = db.Column(db.Integer)
     item_name = db.Column(db.String(100))
     item_qty = db.Column(db.Integer())
-    price = db.Column(db.Integer())
+    price = db.Column(db.Float())
     done = db.Column(db.Boolean())
+    flavor_id = db.Column(db.Integer)
+
+class Loyalty(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    card_no = db.Column(db.String(20))
+    status = db.Column(db.String(30),default='Incomplete')
+    cheesy = db.Column(db.Boolean(),default=False)
+    spicy = db.Column(db.Boolean(),default=False)
+    hungarian = db.Column(db.Boolean(),default=False)
+    polish = db.Column(db.Boolean(),default=False)
+    schublig = db.Column(db.Boolean(),default=False)
+    chicken = db.Column(db.Boolean(),default=False)
+    beef = db.Column(db.Boolean(),default=False)
+    last_used = db.Column(db.String(30))
+
+class Category(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(30))
 
 class POSAdmin(sqla.ModelView):
     column_display_pk = True
@@ -97,60 +173,9 @@ admin.add_view(POSAdmin(ItemAllocation, db.session))
 admin.add_view(POSAdmin(Option, db.session))
 admin.add_view(POSAdmin(OptionAllocation, db.session))
 admin.add_view(POSAdmin(TransactionItem, db.session))
-
-
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if not session.get('user_id'):
-        return redirect('/login')
-    inventory = Item.query.order_by(Item.name).all()
-    history = Transaction.query.filter_by(date=time.strftime("%B %d, %Y")).order_by(Transaction.timestamp.desc())
-    rice_meals = Product.query.filter_by(category='Rice Meals').order_by(Product.name).all()
-    unli_rice_meals = Product.query.filter_by(category='Unli Rice Meals').order_by(Product.name).all()
-    sausage_on_stick = Product.query.filter_by(category='Sausage on Stick').order_by(Product.name).all()
-    sausage_on_bun = Product.query.filter_by(category='Sausage on Bun').order_by(Product.name).all()
-    asian_meal = Product.query.filter_by(category='Asian Meal').order_by(Product.name).all()
-    combo_meal = Product.query.filter_by(category='Combo Meal').order_by(Product.name).all()
-    drinks = Product.query.filter_by(category='Drinks').order_by(Product.name).all()
-    addons = Product.query.filter_by(category='Addons').order_by(Product.name).all()
-    others = Product.query.filter_by(category='Others').order_by(Product.name).all()
-    paid_transactions = Transaction.query.filter_by(date=time.strftime("%B %d, %Y"),payed=True).all()
-    transaction_total = sum(record.total for record in paid_transactions)
-
-    if session.get('cart_items'):
-        return render_template(
-            'index.html',
-            rice_meals=rice_meals,
-            unli_rice_meals=unli_rice_meals,
-            sausage_on_stick=sausage_on_stick,
-            sausage_on_bun=sausage_on_bun,
-            asian_meal=asian_meal,
-            combo_meal=combo_meal,
-            drinks=drinks,
-            addons=addons,
-            others=others,
-            items = session['cart_items'],
-            inventory = inventory,
-            total = session['total'],
-            history = history,
-            transaction_total=transaction_total
-            ), 200
-
-    return render_template(
-            'index.html',
-            rice_meals=rice_meals,
-            unli_rice_meals=unli_rice_meals,
-            sausage_on_stick=sausage_on_stick,
-            sausage_on_bun=sausage_on_bun,
-            asian_meal=asian_meal,
-            combo_meal=combo_meal,
-            drinks=drinks,
-            addons=addons,
-            others=others,
-            inventory = inventory,
-            history = history,
-            transaction_total=transaction_total
-            ), 200
+admin.add_view(POSAdmin(Sale, db.session))
+admin.add_view(POSAdmin(Loyalty, db.session))
+admin.add_view(POSAdmin(Category, db.session))
 
 def least_stock(items):
     stock = items[0].stock
@@ -158,6 +183,273 @@ def least_stock(items):
         if item.stock < stock:
             stock = item.stock
     return stock
+
+
+@app.route('/sync', methods=['GET', 'POST'])
+def sync_to_admin():
+    sales = Sale.query.filter_by(date=time.strftime("%m / %d / %Y")).all()
+    for sale in sales:
+        request_body = {
+            'date': sale.date,
+            'item': sale.item_name,
+            'price': sale.markup,
+            'qty': sale.qty,
+            'total': sale.total,
+            'branch': BRANCH
+        }
+        successful = False
+        while not successful:
+            try:
+                l = requests.post(ADMIN_URL,request_body)
+                if l.status_code == 201:
+                    successful = True
+
+            except requests.exceptions.ConnectionError as e:
+                print 'Could not sync'
+                sleep(5)
+
+    return jsonify(status='success',error=None),200
+
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if not session.get('user_id'):
+        return redirect('/login')
+
+    if session.get('consumption_items'):
+        del(session['consumption_items'])
+
+    sale = Sale.query.filter_by(date=time.strftime("%m / %d / %Y")).first()
+
+    if not sale or sale == None:
+        for product_item in Product.query.all():
+            sale = Sale(
+                item_id = product_item.id,
+                item_name = product_item.name,
+                date= time.strftime("%m / %d / %Y"),
+                markup = product_item.markup,
+                )
+            db.session.add(sale)
+            db.session.commit()
+    # else:
+    #     for item in sale:
+    #         product = Product.query.filter_by(id=item.item_id).first()
+    #         item.markup = product.price
+    #         db.session.commit()
+    #         item.total = item.markup * item.qty
+    #         db.session.commit()
+
+    inventory = Item.query.order_by(Item.name).all()
+    history = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y")).order_by(Transaction.timestamp.desc())
+    loyalty = Loyalty.query.all()
+    sales = Sale.query.filter_by(date=time.strftime("%m / %d / %Y")).order_by(Sale.item_name).all()
+    cash_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='Cash').all()
+    wallet_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='E-Wallet').all()
+    total_cash = sum(record.total for record in cash_transactions)
+    total_wallet = sum(record.total for record in wallet_transactions)
+    sales_total = sum(sale.total for sale in sales)
+
+    categories = Category.query.order_by(Category.name).all()
+    products = Product.query.all()
+
+    if session.get('cart_items'):
+        return render_template(
+            'index.html',
+            products=products,
+            categories=categories,
+            items = session['cart_items'],
+            inventory = inventory,
+            total = session['total'],
+            history = history,
+            sales = sales,
+            loyalty = loyalty,
+            sales_total = sales_total,
+            total_cash=total_cash,
+            total_wallet=total_wallet,
+            date=time.strftime("%m / %d / %Y")
+            ), 200
+
+    return render_template(
+            'index.html',
+            products=products,
+            categories=categories,
+            inventory = inventory,
+            history = history,
+            sales = sales,
+            loyalty = loyalty,
+            sales_total=sales_total,
+            total_cash=total_cash,
+            total_wallet=total_wallet,
+            date=time.strftime("%m / %d / %Y")
+            ), 200
+
+
+@app.route('/consumption/new', methods=['GET', 'POST'])
+def new_consumption():
+    data = flask.request.form.to_dict()
+    item = Item.query.filter_by(id=data['item_id']).first()
+    item_name = item.name
+    if not session.get('consumption_items'):
+        session['consumption_items'] = []
+    session['consumption_items'].append({
+        'id':data['item_id'],
+        'name':item_name,
+        'consumption':data['consumption']
+        })
+    return flask.render_template('new_row.html',items=session['consumption_items'])
+
+
+@app.route('/consumption/delete', methods=['GET', 'POST'])
+def delete_consumption():
+    item_id = flask.request.form.get('item_id')
+
+    for item in session['consumption_items']:
+        if item['id'] == item_id:
+            item_index = session['consumption_items'].index(item)
+            del session['consumption_items'][item_index]
+
+    return flask.render_template('new_row.html',items=session['consumption_items'])
+
+
+@app.route('/consumption/clear', methods=['GET', 'POST'])
+def clear_consumption():
+    if session.get('consumption_items'):
+        del session['consumption_items']
+    return flask.render_template('new_row.html',items=[])
+
+
+@app.route('/products/new', methods=['GET', 'POST'])
+def new_product():
+    data = flask.request.form.to_dict()
+
+    category = Category.query.filter_by(name=data['category'].title()).first()
+    if not category:
+        new_category = Category(name=data['category'].title())
+        db.session.add(new_category)
+        db.session.commit()
+
+    new_product = Product(
+        name=data['name'].title(),
+        category=data['category'].title(),
+        price=data['price'],
+        markup=data['markup']
+        )
+    db.session.add(new_product)
+    db.session.commit()
+
+    for item in session['consumption_items']:
+        new_allocation = ItemAllocation(
+            item_id = item['id'],
+            consumption_per_order = item['consumption'],
+            product_id = new_product.id
+            )
+        db.session.add(new_allocation)
+        db.session.commit()
+
+    new_sale = Sale(
+        item_id = new_product.id,
+        item_name = new_product.name,
+        date= time.strftime("%m / %d / %Y"),
+        markup = new_product.markup,
+        )
+    db.session.add(new_sale)
+    db.session.commit()
+
+    categories = Category.query.order_by(Category.name).all()
+    products = Product.query.all()
+    return flask.render_template(
+        'items.html',
+        products=products,
+        categories=categories
+        )
+
+
+@app.route('/price/update', methods=['GET', 'POST'])
+def update_price():
+    rice_meals = Product.query.filter_by(category='Rice Meals').all()
+    on_bun = Product.query.filter_by(category='Sausage on Bun').all()
+    on_stick = Product.query.filter_by(category='Sausage on Stick').all()
+
+    for item in rice_meals:
+        item.price = 65.0
+        item.markup = 65.0
+        db.session.commit()
+
+    for item in on_bun:
+        item.price = 65.0
+        item.markup = 65.0
+        db.session.commit()
+
+    for item in on_stick:
+        item.price = 55.0
+        item.markup = 55.0
+        db.session.commit()
+
+    return jsonify(status='success',error=''),200
+
+
+@app.route('/history/search', methods=['GET', 'POST'])
+def search_history():
+    date = flask.request.form.get('date')
+
+    history = Transaction.query.filter_by(date=date).order_by(Transaction.timestamp.desc())
+    cash_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='Cash').all()
+    wallet_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='E-Wallet').all()
+    total_cash = sum(record.total for record in cash_transactions)
+    total_wallet = sum(record.total for record in wallet_transactions)
+
+    return flask.render_template('history.html',history=history,total_cash=total_cash,total_wallet=total_wallet)
+
+
+@app.route('/sale/search', methods=['GET', 'POST'])
+def search_sale():
+    date = flask.request.form.get('date')
+    sales = Sale.query.filter_by(date=date).order_by(Sale.item_name).all()
+    sales_total = sum(sale.total for sale in sales)
+    return flask.render_template('sale.html',sales=sales,sales_total=sales_total)
+
+
+@app.route('/item/search', methods=['GET', 'POST'])
+def search_items():
+    keyword = flask.request.form.get('keyword')
+    if keyword == '':
+        categories = Category.query.order_by(Category.name).all()
+        products = Product.query.all()
+        return flask.render_template(
+            'items.html',
+            products=products,
+            categories=categories
+            )
+    products = Product.query.filter(Product.name.ilike('%'+keyword+'%')).order_by(Product.name).all()
+    return flask.render_template('item_result.html',products=products)
+
+
+@app.route('/items/new', methods=['GET', 'POST'])
+def new_item():
+    data = flask.request.form.to_dict()
+    item = Item(
+        name=data['name'].title(),
+        stock=data['stock']
+        )
+    db.session.add(item)
+    db.session.commit()
+
+    inventory = Item.query.order_by(Item.name).all()
+
+    return jsonify( 
+    template = flask.render_template('inventory_result.html',inventory=inventory),
+    options = flask.render_template('items_select.html',inventory=inventory)
+    )
+
+
+@app.route('/inventory/search', methods=['GET', 'POST'])
+def search_inventory():
+    keyword = flask.request.form.get('keyword')
+    if keyword == '':
+        inventory = Item.query.order_by(Item.name).all()
+        return flask.render_template('inventory_result.html',inventory=inventory)
+    inventory = Item.query.filter(Item.name.ilike('%'+keyword+'%')).order_by(Item.name).all()
+    return flask.render_template('inventory_result.html',inventory=inventory)
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -173,7 +465,7 @@ def auth_user():
     user = Cashier.query.filter_by(id_no=data['username'],password=data['password']).first()
     if not user or user == None:
         return redirect('/login')
-    session['user_id'] = user.id_no
+    session['user_id'] = user.id
     session['display_name'] = '%s %s' %(user.first_name,user.last_name)
     return redirect('/')
 
@@ -200,6 +492,16 @@ def get_quantity():
 
     stock = least_stock(items)
 
+    rice_meals = Product.query.filter_by(category='Rice Meals').order_by(Product.name).all()
+    unli_rice_meals = Product.query.filter_by(category='Unli Rice Meals').order_by(Product.name).all()
+    sausage_on_stick = Product.query.filter_by(category='Sausage on Stick').order_by(Product.name).all()
+    sausage_on_bun = Product.query.filter_by(category='Sausage on Bun').order_by(Product.name).all()
+    potato_shit = Product.query.filter_by(category='Potato Shit').order_by(Product.name).all()
+    combo_meal = Product.query.filter_by(category='Combo Meal').order_by(Product.name).all()
+    drinks = Product.query.filter_by(category='Drinks').order_by(Product.name).all()
+    addons = Product.query.filter_by(category='Addons').order_by(Product.name).all()
+    others = Product.query.filter_by(category='Others').order_by(Product.name).all()
+
     return jsonify(
         item_name = product.name,
         item_stock = stock,
@@ -211,6 +513,14 @@ def get_quantity():
 def order_item():
     product = Product.query.filter_by(id=session['product_id']).one()
     qty = flask.request.form.get('qty')
+
+    sale = Sale.query.filter_by(date=time.strftime("%m / %d / %Y"),item_id=product.id).first()
+
+    sale.qty = int(sale.qty) + int(qty)
+    sale.total = sale.qty * sale.markup
+    db.session.commit()
+        
+
     options_id = flask.request.form.getlist('options_id[]')
     options_name = flask.request.form.getlist('options_name[]')
     items = []
@@ -259,9 +569,10 @@ def order_item():
             if not existing:
                 session['cart_items'].append({
                     "id":product.id,
-                    "name":'%s (%s)' % (product.name,", ".join(options_name)),
+                    "name":'%s' % product.name,
                     "options":options_id,
                     "quantity":qty,
+                    "flavor_id":product.flavor_id,
                     "price":product.price * float(qty)
                     })
                 for item in items:
@@ -274,9 +585,10 @@ def order_item():
     else:
         session['cart_items'] = [{
                 "id":product.id,
-                "name":'%s (%s)' % (product.name,", ".join(options_name)),
+                "name":'%s' % product.name,
                 "options":options_id,
                 "quantity":qty,
+                "flavor_id":product.flavor_id,
                 "price":product.price * float(qty)
                 }]
         for item in items:
@@ -292,9 +604,12 @@ def order_item():
         session['total'] += i['price']
 
     inventory = Item.query.order_by(Item.name).all()
+    sales = Sale.query.filter_by(date=time.strftime("%m / %d / %Y")).order_by(Sale.item_name).all()
+    sales_total = sum(sale.total for sale in sales)
     return jsonify(
         transaction_template=flask.render_template('transaction.html',items=session['cart_items'], total=session['total']),
-        inventory_template=flask.render_template('inventory.html',inventory=inventory)
+        inventory_template=flask.render_template('inventory.html',inventory=inventory),
+        sales_template=flask.render_template('sale.html',sales=sales, sales_total=sales_total)
         ) 
 
 
@@ -325,33 +640,6 @@ def cancel_transaction():
     return flask.render_template('transaction.html')
 
 
-@app.route('/transaction/item/delete', methods=['GET', 'POST'])
-def delete_item_from_transaction():
-    transaction_item = TransactionItem.query.filter_by(id=session['delete_id']).one()
-    items = []
-    product = Product.query.filter_by(id=transaction_item.item_id).one()
-    item_ids = ItemAllocation.query.filter_by(product_id=product.id).all()
-    for item in item_ids:
-        items.append(Item.query.filter_by(id=item.item_id).first())
-
-    for item in items:
-        allocation = ItemAllocation.query.filter_by(item_id=item.id,product_id=product.id).first()
-        item.stock += (float(transaction_item.item_qty) * allocation.consumption_per_order)
-
-    transaction = Transaction.query.filter_by(id=session['transaction_id']).one()
-    transaction.total -= transaction_item.price
-
-    db.session.delete(transaction_item)
-    db.session.commit()
-
-    inventory = Item.query.order_by(Item.name).all()
-    items = TransactionItem.query.filter_by(transaction_id=session['transaction_id']).all()
-    return jsonify(
-        inventory_template=flask.render_template('inventory.html',inventory=inventory),
-        transaction_info_template=flask.render_template('transaction_info.html',transaction=transaction,items=items)
-        )
-
-
 @app.route('/item/delete', methods=['GET', 'POST'])
 def delete_item_from_order():
     product = Product.query.filter_by(id=session['delete_id']).one()
@@ -362,6 +650,11 @@ def delete_item_from_order():
 
     for i in session['cart_items']:
         if i['id'] == product.id:
+            sale = Sale.query.filter_by(date=time.strftime("%m / %d / %Y"),item_id=product.id).first()
+            sale.qty = int(sale.qty) - int(i['quantity'])
+            sale.total = sale.qty * sale.markup
+            db.session.commit()
+
             if i['options'] != None:
                 for option in i['options']:
                     option_items = ItemAllocation.query.filter_by(product_id=option).all()
@@ -383,17 +676,30 @@ def delete_item_from_order():
         session['total'] += i['price']   
 
     inventory = Item.query.order_by(Item.name).all()
+    sales = Sale.query.filter_by(date=time.strftime("%m / %d / %Y")).order_by(Sale.item_name).all()
+    sales_total = sum(sale.total for sale in sales)
     return jsonify(
         item_count = len(session['cart_items']),
         transaction_template=flask.render_template('transaction.html',items=session['cart_items'], total=session['total']),
-        inventory_template=flask.render_template('inventory.html',inventory=inventory)
+        inventory_template=flask.render_template('inventory.html',inventory=inventory),
+        sales_template=flask.render_template('sale.html',sales=sales,sales_total=sales_total)
         )
 
 
 @app.route('/transaction/existing', methods=['GET', 'POST'])
 def get_existing_transactions():
-    existing = Transaction.query.filter_by(date=time.strftime("%B %d, %Y"),payed=False).order_by(Transaction.timestamp.desc()).all()
+    existing = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),payed=False).order_by(Transaction.timestamp.desc()).all()
     return flask.render_template('existing.html',existing=existing)
+
+
+@app.route('/loyalty/points', methods=['GET', 'POST'])
+def show_points():
+    card_id = flask.request.form.get('id')
+    points = Loyalty.query.filter_by(id=card_id).first()
+    return jsonify(
+        template=flask.render_template('points.html',points=points),
+        card_no=points.card_no
+        )
 
 
 @app.route('/item/adjust/get', methods=['GET', 'POST'])
@@ -407,11 +713,10 @@ def get_item_to_adjust():
         ),200
 
 
-@app.route('/item/adjust', methods=['GET', 'POST'])
-def adjust_item():
+@app.route('/item/delete', methods=['GET', 'POST'])
+def delete_item():
     item = Item.query.filter_by(id=session['adjust_id']).first()
-    data = flask.request.form.to_dict()
-    item.stock += float(data['plus']) - float(data['minus'])
+    db.delete(item)
     db.session.commit()
     inventory = Item.query.order_by(Item.name).all()
     return jsonify(
@@ -421,9 +726,22 @@ def adjust_item():
         ),201
 
 
+@app.route('/item/adjust', methods=['GET', 'POST'])
+def adjust_item():
+    item = Item.query.filter_by(id=session['adjust_id']).first()
+    data = flask.request.form.to_dict()
+    item.stock += float(data['plus']) - float(data['minus'])
+    db.session.commit()
+    return jsonify(
+        status='success',
+        error=None,
+        item_id=item.id,
+        new_stock=item.stock
+        ),201
+
+
 @app.route('/transaction/cash/amount', methods=['GET', 'POST'])
 def get_amount_tendered():
-    session['customer_name'] = flask.request.form.get('customer_name')
     return jsonify(total=session['total']),200
 
 
@@ -447,77 +765,17 @@ def void_id():
         ),200
 
 
-@app.route('/transaction/void/confirm', methods=['GET', 'POST'])
-def confirm_void():
-    transaction = Transaction.query.filter_by(id=session['void_id']).first()
-    # transaction_items = TransactionItem.query.filter_by(transaction_id=transaction.id).all()
-    # for transaction in transaction_items:
-
-    transaction_items = TransactionItem.query.filter_by(transaction_id=transaction.id).all()
-
-    for transaction_item in transaction_items:
-        product = Product.query.filter_by(id=transaction_item.item_id).first()
-        product_items = ItemAllocation.query.filter_by(product_id=product.id).all()
-        for product_item in product_items:
-            item = Item.query.filter_by(id=product_item.item_id).first()
-            item.stock += float(transaction_item.item_qty) * product_item.consumption_per_order
-        db.session.delete(transaction_item)
-        
-    db.session.delete(transaction)
-    db.session.commit()
-    history = Transaction.query.filter_by(date=time.strftime("%B %d, %Y")).order_by(Transaction.timestamp.desc())
-    transaction_total = sum(record.total for record in history)
-    inventory = Item.query.order_by(Item.name).all()
-    return jsonify(
-        status='success',
-        error='',
-        history_template=flask.render_template('history.html',history=history,transaction_total=transaction_total),
-        inventory_template=flask.render_template('inventory.html',inventory=inventory)
-        ),201
-
-
-@app.route('/transaction/existing/add', methods=['GET', 'POST'])
-def add_to_existing():
-    transaction = Transaction.query.filter_by(id=session['transaction_id']).first()
-    transaction.total += session['total']
-    transaction.status = 'Pending'
-    transaction.remarks = 'Pending'
-    db.session.commit()
-
-    for item in session['cart_items']:
-        transaction_item = TransactionItem(
-            transaction_id=transaction.id,
-            item_id=item['id'],
-            item_name=item['name'],
-            item_qty=item['quantity'],
-            price=item['price'],
-            done=False
-        )
-        db.session.add(transaction_item)
-    db.session.commit()
-
-    session['cart_items'] = []
-    history = Transaction.query.filter_by(date=time.strftime("%B %d, %Y")).order_by(Transaction.timestamp.desc())
-    paid_transactions = Transaction.query.filter_by(date=time.strftime("%B %d, %Y"),payed=True).all()
-    transaction_total = sum(record.total for record in paid_transactions)
-
-    return jsonify(
-        status='success',
-        error='',
-        transaction_template=flask.render_template('no_transaction.html'),
-        history_template=flask.render_template('history.html',history=history,transaction_total=transaction_total)
-        ),201
-
-
 @app.route('/transaction/history/get', methods=['GET', 'POST'])
 def get_history():
-    history = Transaction.query.filter_by(date=time.strftime("%B %d, %Y")).order_by(Transaction.timestamp.desc())
-    paid_transactions = Transaction.query.filter_by(date=time.strftime("%B %d, %Y"),payed=True).all()
-    transaction_total = sum(record.total for record in paid_transactions)
+    history = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y")).order_by(Transaction.timestamp.desc())
+    cash_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='Cash').all()
+    wallet_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='E-Wallet').all()
+    total_cash = sum(record.total for record in cash_transactions)
+    total_wallet = sum(record.total for record in wallet_transactions)
     return jsonify(
         status='success',
         error='',
-        history_template=flask.render_template('history.html',history=history,transaction_total=transaction_total)
+        history_template=flask.render_template('history.html',history=history,total_cash=total_cash,total_wallet=total_wallet)
         ),201
 
 
@@ -533,20 +791,21 @@ def get_amount_tendered_later():
 def finish_transaction():
     tendered = flask.request.form.get('tendered')
     transaction = Transaction(
-        date = time.strftime("%B %d, %Y"),
+        date = time.strftime("%m / %d / %Y"),
         time = time.strftime("%-I:%M %p"),
-        customer_name = session['customer_name'].capitalize(),
         cashier_id = session['user_id'],
         cashier_name = session['display_name'],
         total=session['total'],
         amount_tendered=tendered,
         change=float(tendered) - float(session['total']),
         payed=True,
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S:%f')
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S:%f'),
+        transaction_type='Cash'
         )
     db.session.add(transaction)
     db.session.commit()
 
+    items = []
     for item in session['cart_items']:
         transaction_item = TransactionItem(
             transaction_id=transaction.id,
@@ -554,57 +813,120 @@ def finish_transaction():
             item_name=item['name'],
             item_qty=item['quantity'],
             price=item['price'],
+            flavor_id=item['flavor_id'],
             done=False
         )
         db.session.add(transaction_item)
 
+        items.append({
+            'transaction_id': transaction.id,
+            'item_id': item['id'],
+            'item_name': item['name'],
+            'item_qty': item['quantity'],
+            'price': item['price'],
+            'flavor_id': item['flavor_id'],
+            'done': True
+            })
+
     db.session.commit()
     session['cart_items'] = []
-    history = Transaction.query.filter_by(date=time.strftime("%B %d, %Y")).order_by(Transaction.timestamp.desc())
-    paid_transactions = Transaction.query.filter_by(date=time.strftime("%B %d, %Y"),payed=True).all()
-    transaction_total = sum(record.total for record in paid_transactions)
+    history = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y")).order_by(Transaction.timestamp.desc())
+    cash_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='Cash').all()
+    wallet_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='E-Wallet').all()
+    total_cash = sum(record.total for record in cash_transactions)
+    total_wallet = sum(record.total for record in wallet_transactions)
+
+    data = {
+        'transaction_id': transaction.id,
+        'school_no': SCHOOL_NO,
+        'date': transaction.date,
+        'time': transaction.time,
+        'cashier_id': transaction.cashier_id,
+        'cashier_name': transaction.cashier_name,
+        'total': transaction.total,
+        'amount_tendered': transaction.amount_tendered,
+        'change': transaction.change,
+        'payed': transaction.payed,
+        'timestamp': transaction.timestamp,
+        'transaction_type': transaction.transaction_type,
+        'items':items
+        }
+
+    try:
+        l = requests.post(TRANSACT_URL,json=data,params={'id_no':session['wallet'],'app_key':APP_KEY})
+        if l.status_code == 201:
+            transaction.sync_status = 'successful'
+            db.session.commit()
+
+    except requests.exceptions.ConnectionError as e:
+        print 'failed to sync'
+
     return jsonify(
         status='success',
         error='',
         transaction_template=flask.render_template('no_transaction.html'),
-        history_template=flask.render_template('history.html',history=history,transaction_total=transaction_total)
+        history_template=flask.render_template('history.html',history=history,total_cash=total_cash,total_wallet=total_wallet)
         ),201
 
 
-@app.route('/transaction/finish/later/pay', methods=['GET', 'POST'])
-def finish_later_pay():
-    transaction = Transaction.query.filter_by(id=session['transaction_id']).first()
-    amount_tendered = flask.request.form.get('tendered')
-    transaction.payed = True
-    transaction.amount_tendered = amount_tendered
-    transaction.change = float(amount_tendered) - float(transaction.total)
-    db.session.commit()
+@app.route('/ewallet/info', methods=['GET', 'POST'])
+def get_ewallet_info():
+    id_no = flask.request.form.get('id_no')
+    session['wallet'] = id_no
+    try:
+        l = requests.post(WALLET_URL,params={'id_no':id_no,'app_key':APP_KEY})
+        if l.status_code == 200:
+            session['customer_name'] = l.json()['student_name']
+            return jsonify(
+            status = 'success',
+            template = flask.render_template(
+                'wallet_info.html',
+                success=True,
+                student_name=l.json()['student_name'],
+                credits=l.json()['credits']
+                ),
+            student_name=l.json()['student_name'],
+            credits=l.json()['credits']
+            )
+        else:
+            return jsonify(
+            status = 'failed',
+            template = flask.render_template(
+                'wallet_info.html',
+                success=False,
+                message=l.json()['message']
+                )
+            )
 
-    history = Transaction.query.filter_by(date=time.strftime("%B %d, %Y")).order_by(Transaction.timestamp.desc())
-    paid_transactions = Transaction.query.filter_by(date=time.strftime("%B %d, %Y"),payed=True).all()
-    transaction_total = sum(record.total for record in paid_transactions)
-    return jsonify(
-        status='success',
-        error='',
-        history_template=flask.render_template('history.html',history=history,transaction_total=transaction_total)
-        ),201
+    except requests.exceptions.ConnectionError as e:
+        return jsonify(
+            status = 'failed',
+            template = flask.render_template(
+                'wallet_info.html',
+                success=False,
+                message='Could not connect to server'
+                )
+            )
 
 
-@app.route('/transaction/finish/later', methods=['GET', 'POST'])
-def finish_later():
+@app.route('/transaction/finish/wallet', methods=['GET', 'POST'])
+def finish_transaction_wallet():
     transaction = Transaction(
-        date = time.strftime("%B %d, %Y"),
+        date = time.strftime("%m / %d / %Y"),
         time = time.strftime("%-I:%M %p"),
         cashier_id = session['user_id'],
         cashier_name = session['display_name'],
-        customer_name = flask.request.form.get('customer_name').capitalize(),
+        customer_name = session['customer_name'],
+        customer_id_no = session['wallet'],
         total=session['total'],
-        payed=False,
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S:%f')
+        payed=True,
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S:%f'),
+        transaction_type='E-Wallet'
         )
     db.session.add(transaction)
     db.session.commit()
 
+    items = []
     for item in session['cart_items']:
         transaction_item = TransactionItem(
             transaction_id=transaction.id,
@@ -612,21 +934,61 @@ def finish_later():
             item_name=item['name'],
             item_qty=item['quantity'],
             price=item['price'],
-            done=False
+            flavor_id=item['flavor_id'],
+            done=True
         )
         db.session.add(transaction_item)
 
+        items.append({
+            'transaction_id': transaction.id,
+            'item_id': item['id'],
+            'item_name': item['name'],
+            'item_qty': item['quantity'],
+            'price': item['price'],
+            'flavor_id': item['flavor_id'],
+            'done': True
+            })
+
     db.session.commit()
+
     session['cart_items'] = []
-    history = Transaction.query.filter_by(date=time.strftime("%B %d, %Y")).order_by(Transaction.timestamp.desc())
-    paid_transactions = Transaction.query.filter_by(date=time.strftime("%B %d, %Y"),payed=True).all()
-    transaction_total = sum(record.total for record in paid_transactions)
+
+    history = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y")).order_by(Transaction.timestamp.desc())
+    cash_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='Cash').all()
+    wallet_transactions = Transaction.query.filter_by(date=time.strftime("%m / %d / %Y"),transaction_type='E-Wallet').all()
+    total_cash = sum(record.total for record in cash_transactions)
+    total_wallet = sum(record.total for record in wallet_transactions)
+
+    data = {
+        'transaction_id': transaction.id,
+        'school_no': SCHOOL_NO,
+        'date': transaction.date,
+        'time': transaction.time,
+        'cashier_id': transaction.cashier_id,
+        'cashier_name': transaction.cashier_name,
+        'customer_name': transaction.customer_name,
+        'customer_id_no': transaction.customer_id_no,
+        'total': transaction.total,
+        'payed': transaction.payed,
+        'timestamp': transaction.timestamp,
+        'transaction_type': transaction.transaction_type,
+        'items':items
+        }
+
+    try:
+        l = requests.post(TRANSACT_URL,json=data,params={'id_no':session['wallet'],'app_key':APP_KEY})
+        if l.status_code == 201:
+            transaction.sync_status = 'successful'
+            db.session.commit()
+
+    except requests.exceptions.ConnectionError as e:
+        print 'failed to sync'
+
     return jsonify(
-        status='success',
-        error='',
-        transaction_template=flask.render_template('no_transaction.html'),
-        history_template=flask.render_template('history.html',history=history,transaction_total=transaction_total)
-        ),201
+            status='success',
+            transaction_template=flask.render_template('no_transaction.html'),
+            history_template=flask.render_template('history.html',history=history,total_cash=total_cash,total_wallet=total_wallet)
+            ),201
 
 
 @app.route('/order/list', methods=['GET', 'POST'])
@@ -660,6 +1022,58 @@ def update_order_status():
     db.session.commit()
 
     return redirect('/order/list/update')
+
+
+@app.route('/loyalty/use', methods=['GET', 'POST'])
+def use_loyalty_card():
+    card_no = flask.request.form.get('card_no')
+    products = TransactionItem.query.filter_by(transaction_id=session['transaction_id']).all()
+
+    transaction = Transaction.query.filter_by(id=session['transaction_id']).first()
+    transaction.card_no = card_no
+    db.session.commit()
+
+    loyalty = Loyalty.query.filter_by(card_no=card_no).first()
+    if not loyalty or loyalty == None:
+        loyalty = Loyalty(
+            card_no=card_no
+            )
+        db.session.add(loyalty)
+        db.session.commit()
+
+    for product in products:
+        if product.flavor_id == 1:
+            loyalty.cheesy = True
+        
+        elif product.flavor_id == 2:
+            loyalty.spicy = True
+
+        elif product.flavor_id == 3:
+            loyalty.hungarian = True
+        
+        elif product.flavor_id == 4:
+            loyalty.polish = True
+
+        elif product.flavor_id == 5:
+            loyalty.schublig = True
+
+        elif product.flavor_id == 6:
+            loyalty.chicken = True
+
+        elif product.flavor_id == 7:
+            loyalty.beef = True
+
+    loyalty.last_used = time.strftime("%m / %d / %Y")
+
+    if loyalty.cheesy == True and loyalty.spicy == True\
+    and loyalty.hungarian == True and loyalty.polish == True\
+    and loyalty.schublig == True and loyalty.chicken == True\
+    and loyalty.beef == True:
+        loyalty.status="Complete"
+
+    db.session.commit()
+
+    return '',200
 
 
 @app.route('/transaction/info', methods=['GET', 'POST'])
@@ -779,430 +1193,13 @@ def rebuild_database():
     db.drop_all()
     db.create_all()
 
-    item = Item(
-        name = 'German Supreme Cheesy',
-        stock = 15
+    cashier = Cashier(
+        first_name='Jasper',
+        last_name='Barcelona',
+        id_no='2011334281',
+        password='jasperbarcelona'
         )
-
-    item1 = Item(
-        name = 'German Cheesy Spicy',
-        stock = 15
-        )
-
-    item2 = Item(
-        name = 'Hungarian',
-        stock = 15
-        )
-
-    item3 = Item(
-        name = 'Polish',
-        stock = 15
-        )
-
-    item4 = Item(
-        name = 'Schublig',
-        stock = 15
-        )
-
-    item5 = Item(
-        name = 'Chicken',
-        stock = 15
-        )
-
-    item6 = Item(
-        name = 'Beef Bangers',
-        stock = 15
-        )
-
-    item7 = Item(
-        name = 'Rice',
-        stock = 15
-        )
-
-    item8 = Item(
-        name = 'Egg',
-        stock = 15
-        )
-
-    item9 = Item(
-        name = 'Iced Tea',
-        stock = 15
-        )
-
-    item10 = Item(
-        name = 'San Mig Light',
-        stock = 15
-        )
-
-    item11 = Item(
-        name = 'Pale Pilsen',
-        stock = 15
-        )
-
-    item12 = Item(
-        name = 'Juice',
-        stock = 15
-        )
-
-    # RICE MEALS
-    product = Product(
-        name='German Supreme Cheesy',
-        category='Rice Meals',
-        description='desc',
-        price=59.00
-        )
-
-    product1 = Product(
-        name='German Cheesy Spicy',
-        category='Rice Meals',
-        description='desc',
-        price=59.00
-        )
-
-    product2 = Product(
-        name='Hungarian',
-        category='Rice Meals',
-        description='desc',
-        price=59.00
-        )
-
-    product3 = Product(
-        name='Polish',
-        category='Rice Meals',
-        description='desc',
-        price=59.00
-        )
-
-    product4 = Product(
-        name='Schublig',
-        category='Rice Meals',
-        description='desc',
-        price=59.00
-        )
-
-    product5 = Product(
-        name='Chicken',
-        category='Rice Meals',
-        description='desc',
-        price=59.00
-        )
-
-    product5 = Product(
-        name='Beef Bangers',
-        category='Rice Meals',
-        description='desc',
-        price=59.00
-        )
-
-
-    # UNLI RICE MEALS
-    product6 = Product(
-        name='German Supreme Cheesy',
-        category='Unli Rice Meals',
-        description='desc',
-        price=79.00
-        )
-
-    product7 = Product(
-        name='German Cheesy Spicy',
-        category='Unli Rice Meals',
-        description='desc',
-        price=79.00
-        )
-
-    product8 = Product(
-        name='Hungarian',
-        category='Unli Rice Meals',
-        description='desc',
-        price=79.00
-        )
-
-    product9 = Product(
-        name='Polish',
-        category='Unli Rice Meals',
-        description='desc',
-        price=79.00
-        )
-
-    product10 = Product(
-        name='Schublig',
-        category='Unli Rice Meals',
-        description='desc',
-        price=79.00
-        )
-
-    product11 = Product(
-        name='Chicken',
-        category='Unli Rice Meals',
-        description='desc',
-        price=79.00
-        )
-
-    product12 = Product(
-        name='Beef Bangers',
-        category='Unli Rice Meals',
-        description='desc',
-        price=79.00
-        )
-
-
-    # SAUSAGE ON BUN
-    product13 = Product(
-        name='German Supreme Cheesy',
-        category='Sausage on Bun',
-        description='desc',
-        price=59.00
-        )
-
-    product14 = Product(
-        name='German Cheesy Spicy',
-        category='Sausage on Bun',
-        description='desc',
-        price=59.00
-        )
-
-    product15 = Product(
-        name='Hungarian',
-        category='Sausage on Bun',
-        description='desc',
-        price=59.00
-        )
-
-    product16 = Product(
-        name='Polish',
-        category='Sausage on Bun',
-        description='desc',
-        price=59.00
-        )
-
-    product17 = Product(
-        name='Schublig',
-        category='Sausage on Bun',
-        description='desc',
-        price=59.00
-        )
-
-    product18 = Product(
-        name='Chicken',
-        category='Sausage on Bun',
-        description='desc',
-        price=59.00
-        )
-
-    product19 = Product(
-        name='Beef Bangers',
-        category='Sausage on Bun',
-        description='desc',
-        price=59.00
-        )
-
-
-    # SAUSAGE ON STICK
-    product20 = Product(
-        name='German Supreme Cheesy',
-        category='Sausage on Stick',
-        description='desc',
-        price=49.00
-        )
-
-    product21 = Product(
-        name='German Cheesy Spicy',
-        category='Sausage on Stick',
-        description='desc',
-        price=49.00
-        )
-
-    product22 = Product(
-        name='Hungarian',
-        category='Sausage on Stick',
-        description='desc',
-        price=49.00
-        )
-
-    product23 = Product(
-        name='Polish',
-        category='Sausage on Stick',
-        description='desc',
-        price=49.00
-        )
-
-    product24 = Product(
-        name='Schublig',
-        category='Sausage on Stick',
-        description='desc',
-        price=49.00
-        )
-
-    product25 = Product(
-        name='Chicken',
-        category='Sausage on Stick',
-        description='desc',
-        price=49.00
-        )
-
-    product26 = Product(
-        name='Beef Bangers',
-        category='Sausage on Stick',
-        description='desc',
-        price=49.00
-        )
-
-
-    # ASIAN MEAL
-    product27 = Product(
-        name='German Supreme Cheesy',
-        category='Asian Meal',
-        description='desc',
-        price=39.00
-        )
-
-    product28 = Product(
-        name='German Cheesy Spicy',
-        category='Asian Meal',
-        description='desc',
-        price=39.00
-        )
-
-    product29 = Product(
-        name='Hungarian',
-        category='Asian Meal',
-        description='desc',
-        price=39.00
-        )
-
-    product30 = Product(
-        name='Polish',
-        category='Asian Meal',
-        description='desc',
-        price=39.00
-        )
-
-    product31 = Product(
-        name='Schublig',
-        category='Asian Meal',
-        description='desc',
-        price=39.00
-        )
-
-    product32 = Product(
-        name='Chicken',
-        category='Asian Meal',
-        description='desc',
-        price=39.00
-        )
-
-    product33 = Product(
-        name='Beef Bangers',
-        category='Asian Meal',
-        description='desc',
-        price=39.00
-        )
-
-    # COMBO MEAL
-    product34 = Product(
-        name='German Supreme Cheesy',
-        category='Combo Meal',
-        description='desc',
-        price=99.00
-        )
-
-    product35 = Product(
-        name='German Cheesy Spicy',
-        category='Combo Meal',
-        description='desc',
-        price=99.00
-        )
-
-    product36 = Product(
-        name='Hungarian',
-        category='Combo Meal',
-        description='desc',
-        price=99.00
-        )
-
-    product37 = Product(
-        name='Polish',
-        category='Combo Meal',
-        description='desc',
-        price=99.00
-        )
-
-    product38 = Product(
-        name='Schublig',
-        category='Combo Meal',
-        description='desc',
-        price=99.00
-        )
-
-    product39 = Product(
-        name='Chicken',
-        category='Combo Meal',
-        description='desc',
-        price=99.00
-        )
-
-    product40 = Product(
-        name='Beef Bangers',
-        category='Combo Meal',
-        description='desc',
-        price=99.00
-        )
-    db.session.add(item)
-    db.session.add(item1)
-    db.session.add(item2)
-    db.session.add(item3)
-    db.session.add(item4)
-    db.session.add(item5)
-    db.session.add(item6)
-    db.session.add(item7)
-    db.session.add(item8)
-    db.session.add(item9)
-    db.session.add(item10)
-    db.session.add(item11)
-    db.session.add(item12)
-    
-    db.session.add(product)
-    db.session.add(product1)
-    db.session.add(product2)
-    db.session.add(product3)
-    db.session.add(product4)
-    db.session.add(product5)
-    db.session.add(product6)
-    db.session.add(product7)
-    db.session.add(product8)
-    db.session.add(product9)
-    db.session.add(product10)
-    db.session.add(product11)
-    db.session.add(product12)
-    db.session.add(product13)
-    db.session.add(product14)
-    db.session.add(product15)
-    db.session.add(product16)
-    db.session.add(product17)
-    db.session.add(product18)
-    db.session.add(product19)
-    db.session.add(product20)
-    db.session.add(product21)
-    db.session.add(product22)
-    db.session.add(product23)
-    db.session.add(product24)
-    db.session.add(product25)
-    db.session.add(product26)
-    db.session.add(product27)
-    db.session.add(product28)
-    db.session.add(product29)
-    db.session.add(product30)
-    db.session.add(product31)
-    db.session.add(product32)
-    db.session.add(product33)
-    db.session.add(product34)
-    db.session.add(product35)
-    db.session.add(product36)
-    db.session.add(product37)
-    db.session.add(product38)
-    db.session.add(product39)
-    db.session.add(product40)
-
+    db.session.add(cashier)
     db.session.commit()
 
     return jsonify(status='success'), 201
@@ -1210,5 +1207,5 @@ def rebuild_database():
 
 if __name__ == '__main__':
     app.debug = True
-    app.run(host='192.168.2.44',port=80)
+    app.run(port=8000)
     # host='192.168.2.44',port=80

@@ -1,0 +1,16 @@
+{% if items[0] %}
+<input type="hidden" id="notEmpty" value="not_empty" />
+{% for item in items %}
+<tr> 
+    <td class="xs"><span id="{{item.id}}" class="glyphicon glyphicon-remove delete-from-allocation" onclick="delete_consumption(this.id)"></span></td>
+    <td>{{item.name}}</td>
+    <td class="align-right">{{item.consumption}}</td>
+</tr>
+{% endfor %}
+{% else %}
+<tr>
+    <td class="xs"></td>
+    <td>--</td>
+    <td class="align-right">--</td>
+</tr>
+{% endif %}
