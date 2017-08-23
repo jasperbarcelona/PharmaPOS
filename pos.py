@@ -852,14 +852,14 @@ def finish_transaction():
         'items':items
         }
 
-    try:
-        l = requests.post(TRANSACT_URL,json=data,params={'id_no':session['wallet'],'app_key':APP_KEY})
-        if l.status_code == 201:
-            transaction.sync_status = 'successful'
-            db.session.commit()
+    # try:
+    #     l = requests.post(TRANSACT_URL,json=data,params={'id_no':session['wallet'],'app_key':APP_KEY})
+    #     if l.status_code == 201:
+    #         transaction.sync_status = 'successful'
+    #         db.session.commit()
 
-    except requests.exceptions.ConnectionError as e:
-        print 'failed to sync'
+    # except requests.exceptions.ConnectionError as e:
+    #     print 'failed to sync'
 
     return jsonify(
         status='success',
@@ -976,7 +976,7 @@ def finish_transaction_wallet():
         }
 
     try:
-        l = requests.post(TRANSACT_URL,json=data,params={'id_no':session['wallet'],'app_key':APP_KEY})
+        l = requests.post(TRANSACT_URL,data,params={'id_no':session['wallet'],'app_key':APP_KEY})
         if l.status_code == 201:
             transaction.sync_status = 'successful'
             db.session.commit()
@@ -1207,5 +1207,5 @@ def rebuild_database():
 
 if __name__ == '__main__':
     app.debug = True
-    app.run(port=8000)
+    app.run(port=5000)
     # host='192.168.2.44',port=80
